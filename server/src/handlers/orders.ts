@@ -1,4 +1,7 @@
 import { type CreateOrderInput, type Order, type OrderItem, type UpdateOrderStatusInput, type OrderStatus } from '../schema';
+import { db } from '../db';
+import { ordersTable } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function createOrder(input: CreateOrderInput): Promise<Order> {
     // This is a placeholder declaration! Real code should be implemented here.
@@ -42,9 +45,50 @@ export async function getOrderItems(orderId: number): Promise<OrderItem[]> {
 }
 
 export async function updateOrderStatus(input: UpdateOrderStatusInput): Promise<Order> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is updating order status with proper validation and notifications.
-    return Promise.resolve({} as Order);
+    try {
+        // First, verify the order exists
+        const existingOrder = await db.select()
+            .from(ordersTable)
+            .where(eq(ordersTable.id, input.order_id))
+            .execute();
+
+        if (existingOrder.length === 0) {
+            throw new Error(`Order with id ${input.order_id} not found`);
+        }
+
+        // Prepare update data with timestamp based on status
+        const updateData: any = {
+            status: input.status,
+            updated_at: new Date()
+        };
+
+        // Set appropriate timestamp fields based on status
+        if (input.status === 'validated') {
+            updateData.validated_by = input.updated_by;
+            updateData.validated_at = new Date();
+        } else if (input.status === 'shipped') {
+            updateData.shipped_at = new Date();
+        } else if (input.status === 'delivered') {
+            updateData.delivered_at = new Date();
+        }
+
+        // Update the order
+        const result = await db.update(ordersTable)
+            .set(updateData)
+            .where(eq(ordersTable.id, input.order_id))
+            .returning()
+            .execute();
+
+        // Convert numeric fields back to numbers
+        const updatedOrder = result[0];
+        return {
+            ...updatedOrder,
+            total_amount: parseFloat(updatedOrder.total_amount)
+        };
+    } catch (error) {
+        console.error('Order status update failed:', error);
+        throw error;
+    }
 }
 
 export async function validateOrder(orderId: number, validatedBy: number, approve: boolean): Promise<Order> {
